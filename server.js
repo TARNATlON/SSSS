@@ -1,42 +1,166 @@
-(function(){
-   const useMultiServer = false; // use multiServer.js instead (settings below will be ignored)
+const databaseFile = './.data/rbx-sqlite3-db003.db'; // If you need to reset EVERYTHING, you can change this.
 
-   const PORT = process.env.PORT; // I highly recommend against port 80 if you are hosting this under your own VPS (or other machine as such)
+const tables = [ // These are created once if alwaysCreateTables is false, however if it is set to true these all will be made each time (will not reset data, but will create any new table entries)
+    "playerdata", // All tables have two rows, key and value
+    "table2",
+    "table3"
+];
 
-   const databaseFile = './.data/rbx-sqlite3-db011.db'; // If you need to reset EVERYTHING, you can change this.
+const alwaysCreateTables = false;
+
+const ApiToken = process.env.APITOKEN; // Highly recommended: https://www.grc.com/passwords.htm
+
+const tableKeyLength = 150;
+const tableValueLength = 3500;
+
+const getAsyncAllowStar = false; // Allow "*" to be sent to the server to return all data from a table.
+
+/*
+  SETTINGS ABOVE
+*/
+var $stmt;
+var fs = require('fs');
+
+const sqlite3 = require('better-sqlite3');
+
+var dbExists = fs.existsSync(databaseFile);
+const Database = new sqlite3(databaseFile);
+const json = JSON.stringify;
+
+var express = require('express');
+var bodyParser = require('body-parser');
+var app = express();
+app.use(bodyParser.json());
+if (!dbExists || alwaysCreateTables) {
+  /* fill database with tables */
+  tables.forEach(function(v, i) {
+    Database.prepare("CREATE TABLE IF NOT EXISTS "+v+" (key VARCHAR("+tableKeyLength+") PRIMARY KEY, value VARCHAR("+tableValueLength+") NOT NULL)").run();
+  });
+}
+function isValidTable(tab) {
+  return (tables.indexOf(tab) !== -1); // prepared statements don't allow you to specify a table, so we have to whitelist tables specified above.
+}
 
 
-   const ApiToken = "USE A PASSWORD GENERATOR"; // Highly recommended: https://www.grc.com/passwords.htm
+app.delete("/deleteAsync", function(req, res) {
+  if (req.headers["apitoken"] == ApiToken) {
+    if (req.body.Key != null && req.body.Table != null) {
+      if (isValidTable(req.body.Table)) {
+        $stmt = Database.prepare("DELETE FROM `"+ req.body.Table +"` WHERE `key`=?");
+        var data = $stmt.run(req.body.Key);
+        res.status(200);
+        res.send(json({
+          Success: true,
+          KeyDeleted: data.changes > 0
+        }));
+      } else {
+        res.status(404);
+        res.send(json({
+          Success: false,
+          Message: "Table doesn't exist"
+        }));
+      }
+    } else {
+      res.status(400);
+      res.send(json({
+        Success: false,
+        Message: "Invalid request"
+      }));
+    }
+  } else {
+    res.status(403);
+    res.send(json({
+      Success: false,
+      Message: "You are unauthorized to make requests to this host."
+    }));
+  }
+});
 
-   const startupQueries = [
-      // ex: "CREATE TABLE IF NOT EXISTS banned_users (username VARCHAR(50) PRIMARY KEY, userid INT NOT NULL, reason VARCHAR(50) NOT NULL)"
-   ]
-   /*
-     SETTINGS ABOVE
-   */
-   if (useMultiServer) {
-      require("./multiServer.js");
-      return ""; // Stop further execution
-   }
-   const expressMod = require("./expressModule.js");
+app.post("/postAsync", function(req, res) {
+  if (req.headers["apitoken"] == ApiToken) {
+    if (req.body.Key != null && req.body.Value != null && req.body.Table != null) {
+      if (isValidTable(req.body.Table)) {
+        $stmt = Database.prepare("REPLACE INTO `"+ req.body.Table +"` (key, value) VALUES (?, ?)"); // Create value if not exist, change value if exist.
+        var changes = $stmt.run(req.body.Key, req.body.Value).changes;
+        res.status(200);
+        res.send(json({
+          Success: true,
+          Changes: changes
+        }));
+      } else {
+        res.status(404);
+        res.send(json({
+          Success: false,
+          Message: "Table doesn't exist"
+        }));
+      }
+    } else {
+      res.status(400);
+      res.send(json({
+        Success: false,
+        Message: "Invalid request"
+      }));
+    }
+  } else {
+    res.status(403);
+    res.send(json({
+      Success: false,
+      Message: "You are unauthorized to make requests to this host."
+    }));
+  }
+});
 
-   var express = require('express');
-   var bodyParser = require('body-parser');
-   var app = express();
-   app.use(bodyParser.json());
+app.post("/getAsync", function(req, res) {
+  if (req.headers["apitoken"] == ApiToken) {
+    if (req.body.Key != null && req.body.Table != null) {
+      if (isValidTable(req.body.Table)) {
+        if (req.body.Key == "*" && getAsyncAllowStar) {
+          $stmt = Database.prepare("SELECT * FROM `" + req.body.Table +"`");
+          
+          var data = $stmt.all();
+          res.status(200);
+          res.send(json({
+            Success: true,
+            ValueExists: data.length > 0,
+            Value: data
+          }));
+        } else {
+          $stmt = Database.prepare("SELECT * FROM `" + req.body.Table + "` WHERE `key`=?");
+          var data = $stmt.get(req.body.Key);
+          res.status(200);
+          res.send(json({
+            Success: true,
+            ValueExists: (!data == null),
+            Value: data
+          }));
+        }
+      } else {
+        res.status(404);
+        res.send(json({
+          Success: false,
+          Message: "Table doesn't exist"
+        }));
+      }
+    } else {
+      res.status(400);
+      res.send(json({
+        Success: false,
+        Message: "Invalid request"
+      }));
+    }
+  } else {
+    res.status(403);
+    res.send(json({
+      Success: false,
+      Message: "You are unauthorized to make requests to this host."
+    }));
+  }
+});
 
-   app.use("/", expressMod({ // ability to store several databases on the same url
-     databaseFile: databaseFile,
-     ApiToken: ApiToken,
-     startupQueries: startupQueries
-   }));
+app.all("/", function(req, res) {
+  res.send("Well, hello there Wanderer! " + dbExists);
+});
 
-   app.all("/", function(req, res) {
-     res.send("Well, hello there Wanderer!");
-   });
-
-   var list = app.listen(PORT, function() {
-     console.log('Server Online, Port ' + list.address().port);
-   });
-   
-})();
+var list = app.listen(process.env.PORT, function() {
+  console.log('Server Online, Port ' + list.address().port);
+});
