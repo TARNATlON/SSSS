@@ -1,4 +1,4 @@
-const databaseFile = './.data/rbx-sqlite3-db003.db'; // If you need to reset EVERYTHING, you can change this.
+const databaseFile = './data/rbx-sqlite3-db003.db'; // If you need to reset EVERYTHING, you can change this.
 
 const tables = [ // These are created once if alwaysCreateTables is false, however if it is set to true these all will be made each time (will not reset data, but will create any new table entries)
     "playerdata", // All tables have two rows, key and value
